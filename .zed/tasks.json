@@ -1,0 +1,14 @@
+[
+  {
+    "label": "*draw*",
+    "command": "/Applications/draw.io.app/Contents/MacOS/draw.io -c -o \"$ZED_SELECTED_TEXT\"",
+    "hide": "always",
+    "use_new_terminal": true
+  },
+  {
+    "label": "Export RMarkdown",
+    "command": "Rscript -e \"out <- rmarkdown::render(\\\"$ZED_FILE\\\", \\\"pdf_document\\\")\" && open \"$ZED_DIRNAME/$ZED_STEM.pdf\"",
+    "hide": "on_success",
+    "use_new_terminal": true
+  }
+]

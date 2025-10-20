@@ -1,0 +1,13 @@
+body {
+    font-family: "Georgia", sans-serif;
+    font-size: 14px;
+}
+
+h1,
+h2,
+h3 {
+    font-family: "Georgia", serif;
+}
+code {
+    font-family: "JetBrainsMono Nerd Font", monospace;
+}

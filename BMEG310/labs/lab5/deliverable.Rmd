@@ -1,0 +1,29 @@
+---
+title: "Lab 5 Deliverable"
+output: pdf_document
+---
+
+```{r, echo=F}
+print("Author: Sebastian Hyland, 39878921")
+```
+
+First, let us load in the XLS data:
+```{r}
+library(readxl)
+data <- read_excel("dataset.xls", sheet = "Hoja3")
+data
+```
+
+Now, we can fit the model:
+```{r}
+model <- lm(height ~ age + playtime, data = data)
+```
+
+And finally create the plot:
+```{r fig.height=4}
+plot(model$fitted.values, model$residuals,
+  xlab = "Fitted Values",
+  ylab = "Residuals",
+  main = "Residual Plot: Height vs Predicted Height"
+)
+```

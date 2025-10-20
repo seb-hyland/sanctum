@@ -1,0 +1,39 @@
+---
+title: "Lab 2 Deliverable"
+output: pdf_document
+---
+
+```{r, echo=F}
+print("Author: Sebastian Hyland, 39878921")
+```
+
+
+Since we are requested to not use the built-in `sum` function,
+let's first define a helper function which sums the elements of a vector:
+```{r}
+sumFun <- function(x) {
+  sum <- 0
+  for (item in x) {
+    sum <- sum + item
+  }
+  sum
+}
+```
+
+Now, the `varFun` function can be defined as follows:
+```{r}
+varFun <- function(x) {
+  len <- length(x)
+  mean <- sumFun(x) / len
+
+  square_error <- sumFun((x - mean)**2)
+  variance <- (1 / (len - 1)) * square_error
+
+  print(variance)
+}
+```
+
+and it can be called to print the variance of the range `6:36`:
+```{r}
+varFun(6:36)
+```

@@ -1,0 +1,14 @@
+{
+  // "soft_wrap": "none",
+  "file_types": {
+    "R": ["Rmd", "R", "r", "qmd"]
+  },
+  "languages": {
+    "Markdown": {
+      "language_servers": ["markdown-oxide", "codebook"]
+    },
+    "R": {
+      "language_servers": ["r_language_server", "!codebook"]
+    }
+  }
+}

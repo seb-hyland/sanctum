@@ -1,0 +1,35 @@
+---
+title: "Lab 6 Deliverable"
+output: pdf_document
+---
+
+```{r, echo=F}
+print("Author: Sebastian Hyland, 39878921")
+```
+
+First, let us load in the data and perform a logistic regression with Lag1 + Lag2 + Lag3. Binomial family used since Direction is a binary outcome.
+```{r}
+library(ISLR)
+
+glm.fit <- glm(Direction ~ Lag1 + Lag2 + Lag3,
+  data = Smarket,
+  family = binomial
+)
+
+summary(glm.fit)
+```
+
+Now, we can make predictions and determine the confusion matrix
+```{r}
+glm.probs <- predict(glm.fit, type = "response")
+glm.pred <- ifelse(glm.probs > 0.5, "Up", "Down")
+
+confusion_matrix <- table(glm.pred, Smarket$Direction)
+print(confusion_matrix)
+```
+
+And finally calculate classification rate (accuracy)
+```{r}
+classification_rate <- mean(glm.pred == Smarket$Direction)
+print(classification_rate)
+```

@@ -1,0 +1,26 @@
+---
+title: "Lab 3 Deliverable"
+output: pdf_document
+---
+
+```{r, echo=F}
+print("Author: Sebastian Hyland, 39878921")
+```
+
+First, let us load in the TSV data:
+```{r}
+data <- read.table("data.tsv", header = TRUE, sep = "\t")
+```
+
+Now, we can verify that the shape of the dataframe is as expected:
+```{r}
+print(dim(data))
+print(colnames(data))
+```
+
+Finally, we can import `ggplot2` and create the violin plot, setting the "Sex" column as a factor:
+```{r fig.height=4}
+library(ggplot2)
+ggplot(data, aes(x = Diagnosis, y = Age, fill = factor(Sex))) +
+  geom_violin()
+```

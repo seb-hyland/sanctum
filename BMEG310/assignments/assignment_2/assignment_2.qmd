@@ -1,0 +1,560 @@
+---
+title: "Assignment 2"
+output:
+  pdf_document
+format:
+  typst:
+    include-in-header:
+      - text: |
+          #show link: underline
+          #show raw: set text(font: "JetBrainsMono NF")
+          #show raw.where(block: false): box.with(
+            fill: luma(230),
+            inset: (x: 3pt, y: 0pt),
+            outset: (y: 3pt),
+            radius: 2pt,
+          )
+          #show raw.where(block: true): it => {
+            set block(
+              width: 100%,
+              inset: 6pt,
+              radius: 2pt
+            )
+            if it.lang == "r" {
+              set text(fill: white, size: 8pt)
+              set block(fill: rgb("#282A36"))
+              if it.theme != "Catppuccin Mocha.tmTheme" {
+                raw(it.text, block: true, lang: "r", theme: "Catppuccin Mocha.tmTheme")
+              } else {
+                it
+              }
+            } else {
+              set text(size: 6pt)
+              set block(fill: luma(230))
+              it
+            }
+          }
+---
+```{r, include = F}
+# ` NOTE: This is a hack for my editor, and will not be rendered
+```
+
+```{r, echo = F}
+print("FROM: Group 32 (Andrew Li, Kevin Du, Sebastian Hyland)")
+```
+
+# Setup
+First, let us read the dataset into a data frame `df`:
+```{r}
+df <- read.delim("ovarian.data", sep = ",", header = FALSE)
+features <- c(
+  "perimeter", "area", "smoothness", "symmetry", "concavity", paste(
+    "protein", seq(1, 25),
+    sep = ""
+  )
+)
+
+names(df) <- c("cell_id", "diagnosis", features)
+df$diagnosis <- as.factor(df$diagnosis)
+
+head(df, n = 2)
+```
+
+Now, we can load the required libraries:
+```{r, output = F}
+library(ggplot2)
+library(tidyverse)
+library(plotROC)
+library(RSNNS)
+
+# For plot themeing
+library(ggsci)
+jco_palette <- rep(pal_jco()(10), length.out = 100)
+jco_fill <- scale_fill_manual(values = jco_palette)
+jco_colour <- scale_colour_manual(values = jco_palette)
+```
+
+
+\newpage
+# Questions
+## Q1.1
+To perform PCA on the dataset features, we use `prcomp`:
+```{r}
+pca <- prcomp(
+  df[features],
+  scale. = TRUE, center = TRUE
+)
+pca_summary <- summary(pca)
+str(pca_summary)
+```
+
+By slicing the `importance` field of the the `pca_summary` object, we can see statistics on each PC. The second row contains the variance associated, and the column is the PC of choice:
+```{r}
+pca_summary_importance <- pca_summary$importance
+pca_summary_importance[, 1:5]
+```
+
+As such:
+```{r}
+cat(pca_summary_importance[2, 1] * 100, "%")
+```
+of variance is accounted for by PC1.
+
+
+\newpage
+## Q1.2
+We can use the "Cumulative Proportion" row to find the first PC for which this value exceeds 90%:
+```{r}
+which(
+  pca_summary$importance[3, ] >= 0.9
+)[1] %>%
+  cat(
+    "First item with cumulative variance over threshold: PC",
+    .,
+    sep = ""
+  )
+```
+As such, 9 dimensions are required to preserve 90% of the data's variability.
+
+
+## Q1.3
+```{r}
+pca$x |>
+  as.data.frame() |>
+  select(PC1, PC2) |>
+  mutate(diagnosis = df$diagnosis) |>
+  ggplot(aes(x = PC1, y = PC2, color = diagnosis)) +
+    geom_point(size = 3, alpha = 0.7) +
+    labs(
+      title = "Observations against PC1/PC2",
+      x = "PC1",
+      y = "PC2"
+    ) +
+    jco_colour
+```
+
+Here, observations are plotted based on PC1 and PC2, coloured by diagnosis. Reasonably clear separation between the two clusters is visible.
+
+
+\newpage
+## Q1.4
+```{r}
+df |>
+  as.data.frame() |>
+  ggplot(aes(x = area, y = concavity, color = diagnosis)) +
+  geom_point(size = 3, alpha = 0.7) +
+  labs(
+    title = "Area vs Concavity Features",
+    x = "Area",
+    y = "Concavity"
+  ) +
+  jco_colour
+```
+
+Here, observations are plotted based on area and concavity. Although clustering is somewhat observed, it is not clear.
+
+
+\newpage
+## Q1.5
+In [1.3](#q1.3), principal component analysis (PCA) transforms the original 30 features into a new set of dimensions (principal components), ordered by the quantity of variance that they capture (as such, the first and second PCs capture the most variance). On the other hand, concavity and area in [1.4](#q1.4) are just two of these raw features. Because PCA maximizes variance capture in each of its dimensions, response separation (in this case __diagnosis__) is typically greater than in individual raw features. This would be especially true if neither area nor concavity are dominant discriminatory features.
+
+Following this theoretical basis, we can visually identify greater separation based on diagnosis in the [PCA chart](#q1.3) than the [concavity/area raw feature chart](#q1.4).
+
+
+```{=typst}
+#v(2em)
+```
+## Q1.6
+Let us first create boxplots which represent the data distribution of each PC:
+```{r}
+pca$x |>
+  as.data.frame() |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "PC",
+    values_to = "Value"
+  ) |>
+  mutate(PC = factor(parse_number(PC))) |>
+  ggplot(aes(x = PC, y = Value, fill = PC)) +
+  geom_boxplot(show.legend = FALSE) +
+  labs(
+      title = "Data distribution of each Principal Component",
+      x = "PC",
+      y = "Value distribution"
+    ) +
+  jco_fill
+```
+
+Now, let us visually represent the proportion of variance captured by each PC:
+```{r}
+pca_plotting_summary <- pca_summary$importance |>
+  t() |>
+  as.data.frame() |>
+  rownames_to_column("PC") |>
+  mutate(PC = factor(parse_number(PC)))
+
+ggplot(pca_plotting_summary,
+  aes(x = PC, y = `Proportion of Variance`, fill = PC)
+) +
+  geom_col(show.legend = FALSE) +
+  labs(
+    title = "Variance captured by each Principal Component",
+    x = "PC",
+    y = "Proportion of variance"
+  ) +
+  jco_fill
+```
+
+Or, cumulatively:
+```{r}
+ggplot(pca_plotting_summary,
+  aes(x = PC, y = `Cumulative Proportion`, color = PC, group = 1)
+) +
+  geom_line(linewidth = 1.2, show.legend = FALSE) +
+  geom_point(size = 2, alpha = 0.7, show.legend = FALSE) +
+  labs(
+    title = "Cumulative variance captured by Principal Components",
+    x = "PC",
+    y = "Variance captured"
+  ) +
+  coord_cartesian(ylim = c(0, 1)) +
+  jco_colour
+```
+
+```{=typst}
+#v(3em)
+```
+# Q2
+Let us first define the following helper functions:
+```{r}
+metrics <- function(matrix) {
+  true_pos <- matrix["M", "M"]
+  true_neg <- matrix["B", "B"]
+  false_pos <- matrix["M", "B"]
+  false_neg <- matrix["B", "M"]
+
+  accuracy <- (true_pos + true_neg) / sum(matrix)
+  precision <- true_pos / (true_pos + false_pos)
+  recall <- true_pos / (true_pos + false_neg)
+
+  list(
+    accuracy = accuracy,
+    precision = precision,
+    recall = recall
+  )
+}
+
+print_metrics <- function(metrics) {
+  cat("Metrics:\n")
+  for (name in names(metrics)) {
+    val <- metrics[[name]]
+    cat(name, ":", val, "\n")
+  }
+}
+
+print_confusion <- function(confusion_matrix) {
+  cat("Confusion matrix:", "\n")
+  print(confusion_matrix)
+}
+```
+
+\newpage
+## Q2.1
+Let us define a function to execute k-means analysis, using the `kmeans` function:
+```{r}
+kmeans_analysis <- function(features, scaled = TRUE, echo = TRUE) {
+  clusters <- (if (scaled) scale(features) else features) |>
+    kmeans(centers = 2) |>
+    pluck("cluster")
+
+  actual <- df$diagnosis
+  pred1 <- ifelse(clusters == 1, "M", "B")
+  pred2 <- ifelse(clusters == 1, "B", "M")
+  accuracy <- function(pred, actual) mean(pred == actual)
+
+  pred <- if (accuracy(pred1, actual) >= accuracy(pred2, actual)) {
+    pred1
+  } else {
+    pred2
+  }
+
+  table(pred, actual)
+}
+```
+
+Now, we can call this function to run k-means analysis on the dataset's feature columns:
+```{r}
+analysis <- kmeans_analysis(df[features])
+print(analysis)
+```
+
+then compute and print metrics for this confusion table:
+```{r}
+metrics(analysis) |>
+  print_metrics()
+```
+As such, this k-means model provides reasonably high accuracy when used to predict diagnoses from raw feature data, signifying reasonably high-quality data clustering.
+
+
+\newpage
+## Q2.2
+We can repeat the above analysis 10 times using `replicate`:
+```{r}
+replicate(
+  10,
+  { kmeans_analysis(df[features], echo = FALSE) |> metrics() },
+  simplify = FALSE
+) |>
+  bind_rows() |>
+  print()
+```
+K-means clustering is a stochastic algorithm, meaning its results can vary slightly between runs due to random initialization of cluster centroids. Different starting points can produce different local minima in the optimization process, leading to small variations in cluster membership and accuracy. Running the algorithm multiple times, as done here, helps mitigate randomness and ensures more stable performance estimates. By averaging results across multiple runs, we obtain a more reliable estimate of the model’s true accuracy. Setting a random seed or using a large number of initializations (via the `nstart` parameter) can further reduce variability and improve reproducibility.
+
+
+\newpage
+## Q2.3
+We can repeat k-means analysis but on principal components rather than features directly (the top 5 PCs are used):
+```{r}
+analysis_pca <- pca$x[, 1:5] |>
+  kmeans_analysis(scaled = FALSE, echo = FALSE)
+print(analysis_pca)
+analysis_pca |>
+  metrics() |>
+  print_metrics()
+```
+This is also reasonably accurate when used to predict diagnoses from principal components.
+
+
+```{=typst}
+#v(2em)
+```
+## Q2.4
+The results between Q2.2 and Q2.3 are very close: k-means clustering with all raw features achieved 92.16% accuracy, while clustering on the top 5 principal components (PCs) resulted in 91.84%. This suggests that just 5 PCs, capturing about 80% of the data's total variance, are sufficient to encode most of the class-separating information for successful clustering. However, the raw-feature model's slightly higher accuracy indicates that some subtle discriminative details may reside outside the top PCs and are not fully preserved by dimensionality reduction.
+
+This trade-off highlights how PCA prioritizes directions of greatest variance rather than explicit class separation, sometimes omitting lower-variance features that contribute to clustering accuracy. Additionally, using more PCs — or carefully selecting which ones to include — could further improve performance and possibly match or exceed the raw-feature model. Practically, clustering on fewer PCs offers advantages in computational efficiency and easier model interpretation, especially in high-dimensional datasets. In cases where raw features contain noise or outliers, PCA can reduce their effect and potentially yield better or more stable clustering results.
+
+
+
+\newpage
+# Q3
+Let us first extract training and testing datasets:
+```{r}
+training_set <- df[
+  sample(nrow(df))
+  [1:(nrow(df) / 2)],
+]
+testing_set <- df[
+  sample(nrow(df))
+  [(nrow(df) / 2):(nrow(df))],
+]
+```
+
+To keep factor ordering consistent:
+```{r}
+diagnosis_order <- c("B", "M")
+training_set$diagnosis <- factor(training_set$diagnosis, levels = diagnosis_order)
+testing_set$diagnosis  <- factor(testing_set$diagnosis,  levels = diagnosis_order)
+```
+
+
+\newpage
+## Q3.1
+We will start by fitting a generalized linear model to the  __training__ set, then generate probabilities for the __testing__ set:
+```{r, output = F}
+set.seed(1)
+glm_model <- training_set %>%
+  # Train off training_set
+  glm(
+    data = .,
+    formula = reformulate(
+      names(.[features]),
+      response = "diagnosis"
+    ),
+    family = binomial
+  )
+```
+
+Now, we can convert these probabilities to diagnoses for each entry in the training and testing datasets, and compute metrics:
+```{r}
+gen_preds <- function(x) ifelse(x > 0.5, "M", "B")
+
+run_model_analysis <- function(model, slice_op, train, test, type = "response") {
+  cat("----- Training analysis -----", "\n")
+
+  if (is.null(type) || type == "") {
+    training_preds <- predict(model, train[slice_op])
+    testing_preds <- predict(model, test[slice_op])
+  } else {
+    training_preds <- predict(model, train[slice_op], type = type)
+    testing_preds <- predict(model, test[slice_op], type = type)
+  }
+
+  training_confusion <- training_preds |>
+    gen_preds() |>
+    table(train$diagnosis) |>
+    print_confusion()
+
+  cat("\n")
+  metrics(training_confusion) |>
+    print_metrics()
+
+  cat("\n", "----- Testing analysis ------", "\n", sep = "")
+  testing_confusion <- testing_preds |>
+    gen_preds() |>
+    table(test$diagnosis) |>
+    print_confusion()
+
+  cat("\n")
+  metrics(testing_confusion) |>
+    print_metrics()
+}
+
+run_model_analysis(glm_model, features, training_set, testing_set)
+```
+This model had perfect accuracy when predicting against the training dataset, and quite high (95.2%) accuracy when predicting against the testing dataset.
+
+
+\newpage
+## Q3.2
+First, let us run PCA on the training and testing datasets:
+```{r, output = F}
+pca_model <- prcomp(
+  training_set[features],
+  scale. = TRUE,
+  center = TRUE
+)
+
+into_pca_df <- function(dataset) {
+  pca_model |>
+    predict(dataset[features]) |>
+    as.data.frame() |>
+    select(1:5) |>
+    mutate(diagnosis = dataset$diagnosis) |>
+    # Set diagnosis to first col, then 5 PC cols
+    select(diagnosis = diagnosis, everything())
+}
+
+training_pca_df <- into_pca_df(training_set)
+testing_pca_df <- into_pca_df(testing_set)
+```
+
+Which provides neat data frames:
+```{r}
+head(training_pca_df)
+head(testing_pca_df)
+```
+
+Now, we can repeat the analysis from [3.1](#q3.1) with the top 5 PCs:
+```{r, output = F}
+
+glm_pca_model <- training_pca_df %>%
+  glm(
+    data = .,
+    formula = reformulate(
+      colnames(training_pca_df[2:ncol(training_pca_df)]),
+      response = "diagnosis"
+    ),
+    family = binomial
+)
+```
+
+Finally, associate probabilities with diagnoses and generate metrics:
+```{r}
+run_model_analysis(
+  glm_pca_model,
+  2:ncol(testing_pca_df),
+  training_pca_df,
+  testing_pca_df
+)
+```
+This model has high but not perfect (98.0%) accuracy against its training dataset, and very high (96.8%) accuracy when predicting against the testing data.
+
+
+```{=typst}
+#v(2em)
+```
+## Q3.4
+The results in both [3.1](#q3.1) and [3.2](#q3.2) were both excellent, but using the top 5 PCs yielded marginally better accuracy when predicting diagnoses on testing data (96.8% vs 95.2%). PCA can help by reducing low variance noise in the data, which tends to help stablize it. The model built off raw features has a perfect fit when run on its training data, which suggests that the model is overfit or has complete separation; it then performs worse on the test dataset. On the other hand, the model built off the top five PCs has slightly worse accuracy when rerun on its training data (98.0%) but then performs better on the test dataset.
+
+
+\newpage
+# Q3.5
+Since the PC model outperformed the raw features model, let us use it on the dataset at large and generate a ROC curve. First, convert the original `df` into a suitable data frame, and obtain metrics:
+```{r}
+df_pca <- into_pca_df(df)
+model_preds <- predict(glm_pca_model, df_pca, type = "response")
+
+model_confusion <- model_preds |>
+  gen_preds() |>
+  table(df_pca$diagnosis) |>
+  print_confusion()
+metrics(model_confusion) |>
+  print_metrics()
+```
+
+Now, we can generate a ROC curve:
+```{r}
+data.frame(
+  D = as.numeric(df$diagnosis == "M"),
+  M = model_preds
+) |>
+  ggplot(aes(d = D, m = M)) + geom_roc(n.cuts = 0) + style_roc() +
+    labs(title = "ROC curve for PCA-based GLM")
+```
+The ROC curve bows sharply toward the top-left corner, demonstrating strong predictive power. This indicates high sensitivity (true positive rate) with minimal false positives across most threshold values, suggesting the model has excellent discrimination between benign and malignant cases. Unlike single-threshold metrics, the ROC curve provides a comprehensive view of the model's performance across all possible classification thresholds, illustrating the trade-off between sensitivity and specificity.
+
+We can generate a similar curve for the model trained off raw features:
+```{r}
+model_preds_raw <- predict(glm_model, df[features], type = "response")
+data.frame(
+  D = as.numeric(df$diagnosis == "M"),
+  M = model_preds_raw
+) |>
+  ggplot(aes(d = D, m = M)) + geom_roc(n.cuts = 0) + style_roc() +
+    labs(title = "ROC curve for feature-based GLM")
+```
+
+
+\newpage
+## Q3.6
+### Raw features
+```{r}
+scaled_training_matrix <- scale(training_set[features])
+ctr <- attr(scaled_training_matrix, "scaled:center")
+sdr <- attr(scaled_training_matrix, "scaled:scale")
+
+scaled_training_df <- training_set
+scaled_training_df[features] <- scaled_training_matrix
+
+scaled_testing_df <- testing_set
+scaled_testing_matrix <- scale(testing_set[features], center = ctr, scale = sdr)
+scaled_testing_df[features] <- scaled_testing_matrix
+
+y_train_num <- as.numeric(training_set$diagnosis == "M")
+mlp_all <- mlp(
+  as.matrix(scaled_training_df[features]),
+  y_train_num,
+  size = 5,
+  maxit = 200,
+  learnFuncParams = c(0.1),
+  linOut = FALSE
+)
+
+run_model_analysis(mlp_all, features, scaled_training_df, scaled_testing_df)
+```
+
+
+\newpage
+### PCA
+```{r}
+y_train_num <- as.numeric(training_pca_df$diagnosis == "M")
+mlp_pca <- mlp(
+  as.matrix(training_pca_df[2:6]),
+  y_train_num,
+  size = 5,
+  maxit = 200,
+  learnFuncParams = c(0.1),
+  linOut = FALSE
+)
+run_model_analysis(mlp_pca, 2:6, training_pca_df, testing_pca_df)
+```
